@@ -1,6 +1,7 @@
 import json
 import os
-import pandas as pd  # We use pandas for efficient CSV reading
+import hashlib  # <--- Added for ID generation
+import pandas as pd
 import pyodbc
 from loguru import logger
 from src.ingest.vectorizer import VectorizerFactory 
@@ -20,21 +21,23 @@ class AetherBatchLoader:
             "TrustServerCertificate=yes;"
         )
 
+    def generate_stable_id(self, text: str) -> str:
+        """Creates a deterministic ID (MD5) from the product title."""
+        return hashlib.md5(text.encode('utf-8')).hexdigest()
+
     def load_file(self, file_path: str):
         if not os.path.exists(file_path):
             logger.error(f"File not found: {file_path}")
             return
 
-        # Determine file type
         _, ext = os.path.splitext(file_path)
         
         try:
             if ext.lower() == '.csv':
                 logger.info(f"Detected CSV. Processing {file_path} in chunks...")
-                # Chunking prevents Memory Overload on large Amazon files
                 chunk_size = 1000 
-                for chunk in pd.read_csv(file_path, chunksize=chunk_size):
-                    # Convert DataFrame chunk to list of dicts
+                # Quotechar/Doublequote added to handle messy CSVs
+                for chunk in pd.read_csv(file_path, chunksize=chunk_size, on_bad_lines='skip'):
                     batch = chunk.to_dict(orient='records')
                     self._process_batch(batch)
                     
@@ -43,8 +46,6 @@ class AetherBatchLoader:
                 with open(file_path, 'r') as f:
                     data = json.load(f)
                     self._process_batch(data)
-            else:
-                logger.error(f"Unsupported file format: {ext}")
 
         except Exception as e:
             logger.error(f"Failed to load file: {e}")
@@ -57,22 +58,23 @@ class AetherBatchLoader:
 
             for item in batch_data:
                 try:
-                    # Amazon CSVs usually have 'title' and 'category' columns
-                    # We map them to our schema
+                    title = str(item.get("title", item.get("Title", ""))).strip()
+                    if not title: 
+                        continue
+
+                    # --- LOGIC FIX: Generate ID if missing ---
+                    product_id = str(item.get("asin", item.get("ProductId", "")))
+                    if not product_id or product_id == "nan":
+                        product_id = self.generate_stable_id(title)
+
                     clean_item = {
-                        "ProductId": str(item.get("asin", item.get("ProductId", "UNKNOWN"))), # Fallback if no ID
-                        "Title": str(item.get("title", "No Title")),
+                        "ProductId": product_id,
+                        "Title": title,
                         "Category": str(item.get("category", "Uncategorized")),
                         "Price": float(item.get("price", 0.0)),
                         "Description": str(item.get("description", "")),
-                        # Construct RawText for embedding
-                        "RawText": f"{item.get('title', '')} {item.get('description', '')} {item.get('category', '')}"
+                        "RawText": f"{title} {item.get('category', '')}"
                     }
-                    
-                    # Generate simple ID if missing (common in some CSVs)
-                    if clean_item["ProductId"] == "UNKNOWN":
-                        # Skip or generate hash? For now, let's skip invalid rows
-                        continue
 
                     # 1. Generate Vector
                     vector = self.vectorizer.generate_embedding(clean_item["RawText"])
@@ -95,7 +97,7 @@ class AetherBatchLoader:
 
                     cursor.execute(sql, (
                         clean_item["ProductId"], 
-                        clean_item["Title"], 
+                        clean_item["Title"][:400], # Truncate title to fit DB if needed
                         clean_item["Category"], 
                         clean_item["Price"], 
                         clean_item["Description"], 
@@ -105,15 +107,14 @@ class AetherBatchLoader:
                     
                 except Exception as row_error:
                     if "23000" in str(row_error) or "Violation of PRIMARY KEY" in str(row_error):
-                        continue # Ignore duplicates
-                    # logger.warning(f"Skipping row: {row_error}") # Commented out to reduce noise
+                        continue
+                    # logger.warning(f"Row Error: {row_error}")
                     continue
 
             conn.commit()
-            # Print progress without spamming logs
             print(f"Batch Processed: {successful_inserts} rows inserted.")
 
 if __name__ == "__main__":
     loader = AetherBatchLoader()
-    # Updated to point to the file inside the container
+    # Make sure this matches your file path inside the container
     loader.load_file("data/titles_to_categories.csv")

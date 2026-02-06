@@ -19,4 +19,3 @@ GO
 ALTER TABLE catalog.Products 
 ADD ProductVector_Local VECTOR(384) NULL;
 GO
-
