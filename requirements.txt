@@ -1,28 +1,30 @@
-# Database
-pyodbc==5.0.1
-pymssql==2.2.11
-
-# Vector Embeddings
+# --- AI & Vectorization ---
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cpu
+sentence-transformers==2.5.1
 openai==1.12.0
 
-# API Framework
+# --- Database ---
+pyodbc==5.0.1
+
+# --- API Framework ---
 fastapi==0.109.2
 uvicorn[standard]==0.27.1
 pydantic==2.6.1
 pydantic-settings==2.1.0
 
-# Data Processing
+# --- Data Processing ---
 pandas==2.2.0
 numpy==1.26.4
+tqdm==4.66.1
 
-# Environment Management
+# --- Environment & Utils ---
 python-dotenv==1.0.1
-
-# Testing
-pytest==8.0.0
-pytest-asyncio==0.23.4
-httpx==0.26.0
-
-# Utilities
 tenacity==8.2.3
 loguru==0.7.2
+
+
+# --- Testing ---
+pytest>=7.4.4,<8.0.0
+pytest-asyncio==0.23.5
+httpx==0.26.0

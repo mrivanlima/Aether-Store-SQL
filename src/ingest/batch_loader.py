@@ -1,191 +1,78 @@
-"""
-Batch Product Data Loader
-
-This module handles the ingestion of product data from various sources
-and loading into SQL Server with vector embeddings.
-
-Author: Senior Data Architect
-Date: February 4, 2026
-"""
-
 import json
-import pandas as pd
-import pyodbc
-from pathlib import Path
-from typing import List, Dict, Any, Optional
-from loguru import logger
-from dotenv import load_dotenv
 import os
+import pyodbc
+from loguru import logger
+# --- CORRECT IMPORT ---
+from src.ingest.vectorizer import ProductVectorizer 
+from src.ingest.data_transformer import AmazonDataTransformer
 
-from src.ingest.vectorizer import ProductVectorizer
-
-
-class BatchProductLoader:
-    """
-    Handles batch loading of product data into SQL Server with vector embeddings.
-    
-    Attributes:
-        connection_string: SQL Server connection string
-        vectorizer: ProductVectorizer instance for generating embeddings
-    """
-    
-    def __init__(self, connection_string: Optional[str] = None):
-        """
-        Initialize the BatchProductLoader.
-        
-        Args:
-            connection_string: SQL Server connection string (defaults to env variables)
-        """
-        load_dotenv()
-        
-        if connection_string:
-            self.connection_string = connection_string
-        else:
-            self.connection_string = self._build_connection_string()
-        
+class AetherBatchLoader:
+    def __init__(self):
+        # --- CORRECT INITIALIZATION ---
         self.vectorizer = ProductVectorizer()
-        logger.info("BatchProductLoader initialized")
-    
-    def _build_connection_string(self) -> str:
-        """Build connection string from environment variables."""
-        host = os.getenv("MSSQL_HOST", "localhost")
-        port = os.getenv("MSSQL_PORT", "1433")
-        user = os.getenv("MSSQL_USER", "sa")
-        password = os.getenv("MSSQL_PASSWORD")
-        database = os.getenv("MSSQL_DATABASE", "AetherStoreDB")
+        self.transformer = AmazonDataTransformer()
         
-        return (
+        # Connection String
+        self.conn_str = (
             f"DRIVER={{ODBC Driver 18 for SQL Server}};"
-            f"SERVER={host},{port};"
-            f"DATABASE={database};"
-            f"UID={user};"
-            f"PWD={password};"
-            f"TrustServerCertificate=yes;"
+            f"SERVER={os.getenv('SQL_SERVER')};"
+            f"DATABASE={os.getenv('SQL_DATABASE')};"
+            f"UID={os.getenv('SQL_USER')};"
+            f"PWD={os.getenv('SQL_PASSWORD')};"
+            "TrustServerCertificate=yes;"
         )
-    
-    def load_from_json(self, file_path: Path) -> List[Dict[str, Any]]:
-        """
-        Load product data from JSON file.
-        
-        Args:
-            file_path: Path to JSON file
-            
-        Returns:
-            List of product dictionaries
-        """
-        logger.info(f"Loading data from: {file_path}")
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        logger.info(f"Loaded {len(data)} products from JSON")
-        return data
-    
-    def load_from_csv(self, file_path: Path) -> List[Dict[str, Any]]:
-        """
-        Load product data from CSV file.
-        
-        Args:
-            file_path: Path to CSV file
-            
-        Returns:
-            List of product dictionaries
-        """
-        logger.info(f"Loading data from: {file_path}")
-        df = pd.read_csv(file_path)
-        logger.info(f"Loaded {len(df)} products from CSV")
-        return df.to_dict('records')
-    
-    def insert_products(self, products: List[Dict[str, Any]]) -> int:
-        """
-        Insert products with embeddings into SQL Server.
-        
-        Args:
-            products: List of product dictionaries
-            
-        Returns:
-            Number of products inserted
-        """
-        logger.info(f"Starting batch insert for {len(products)} products")
-        
-        # Prepare texts for vectorization
-        texts = [
-            self.vectorizer.prepare_product_text(
-                name=p.get('name', ''),
-                description=p.get('description', ''),
-                category=p.get('category', ''),
-                brand=p.get('brand', '')
-            )
-            for p in products
-        ]
-        
-        # Generate embeddings
-        logger.info("Generating embeddings...")
-        embeddings = self.vectorizer.generate_batch_embeddings(texts)
-        
-        # Insert into database
-        inserted_count = 0
-        conn = pyodbc.connect(self.connection_string)
-        cursor = conn.cursor()
-        
-        insert_query = """
-        INSERT INTO dbo.Products (
-            SKU, ProductName, ProductDescription, Category, Brand, 
-            Price, StockQuantity, ProductEmbedding
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """
-        
+
+    def load_file(self, file_path: str = "data/sample.json"):
+        if not os.path.exists(file_path):
+            logger.error(f"File not found: {file_path}")
+            return
+
         try:
-            for product, embedding in zip(products, embeddings):
-                vector_string = f"[{','.join(map(str, embedding))}]"
-                
-                cursor.execute(
-                    insert_query,
-                    product.get('sku'),
-                    product.get('name'),
-                    product.get('description'),
-                    product.get('category'),
-                    product.get('brand'),
-                    product.get('price'),
-                    product.get('stock_quantity', 0),
-                    vector_string
-                )
-                inserted_count += 1
+            with open(file_path, 'r') as f:
+                data = json.load(f)
             
-            conn.commit()
-            logger.info(f"Successfully inserted {inserted_count} products")
-        
+            logger.info(f"Loaded {len(data)} records from {file_path}")
+            self._process_batch(data)
+            
         except Exception as e:
-            conn.rollback()
-            logger.error(f"Error inserting products: {e}")
+            logger.error(f"Failed to load file: {e}")
             raise
-        
-        finally:
-            cursor.close()
-            conn.close()
-        
-        return inserted_count
 
+    def _process_batch(self, batch_data):
+        with pyodbc.connect(self.conn_str) as conn:
+            cursor = conn.cursor()
+            logger.info("Connected to SQL Server successfully.")
+            
+            successful_inserts = 0
 
-def main():
-    """Main entry point for batch loading."""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='Batch load product data')
-    parser.add_argument('--input', required=True, help='Input file path (JSON or CSV)')
-    args = parser.parse_args()
-    
-    loader = BatchProductLoader()
-    
-    file_path = Path(args.input)
-    if file_path.suffix == '.json':
-        products = loader.load_from_json(file_path)
-    elif file_path.suffix == '.csv':
-        products = loader.load_from_csv(file_path)
-    else:
-        raise ValueError("Unsupported file format. Use JSON or CSV.")
-    
-    loader.insert_products(products)
+            for item in batch_data:
+                try:
+                    clean_item = self.transformer.transform_row(item)
+                    
+                    # Generate vector
+                    vector = self.vectorizer.generate_embedding(clean_item["RawText"])
+                    
+                    # Insert into SQL Server 2025
+                    cursor.execute("""
+                        INSERT INTO catalog.Products (ProductId, Title, Category, Price, Description, ProductVector)
+                        VALUES (?, ?, ?, ?, ?, CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(1536))) 
+                    """, (
+                        clean_item["ProductId"], 
+                        clean_item["Title"], 
+                        clean_item["Category"], 
+                        clean_item["Price"], 
+                        clean_item["Description"], 
+                        str(vector) # Goes into the double cast
+                    ))
+                    successful_inserts += 1
+                    
+                except Exception as row_error:
+                    logger.warning(f"Skipping row {item.get('asin', 'unknown')}: {row_error}")
+                    continue
 
+            conn.commit()
+            logger.success(f"Pipeline Complete. Successfully inserted {successful_inserts} vectors.")
 
 if __name__ == "__main__":
-    main()
+    loader = AetherBatchLoader()
+    loader.load_file()

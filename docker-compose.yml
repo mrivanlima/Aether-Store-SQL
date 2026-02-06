@@ -1,43 +1,49 @@
-version: '3.8'
-
 services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2025-latest
     container_name: aether-sql-server
     environment:
       - ACCEPT_EULA=Y
-      - MSSQL_SA_PASSWORD=YourStrong!Passw0rd
+      - MSSQL_SA_PASSWORD=${SQL_PASSWORD}
       - MSSQL_PID=Developer
     ports:
-      - "1433:1433"
+      - "1434:1433" # Access via localhost,1434 externally
     volumes:
       - sqlserver_data:/var/opt/mssql
     networks:
       - aether-network
     healthcheck:
-      test: ["CMD", "/opt/mssql-tools/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "YourStrong!Passw0rd", "-Q", "SELECT 1"]
+      # We use the full path to the new tools and add -C to trust the self-signed cert
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P '${SQL_PASSWORD}' -C -Q 'SELECT 1' || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 30s # Gives the upgrade steps time to finish before checking
 
   api:
-    build: .
+    build: 
+      context: . # Now set to root so it can find requirements.txt
+      dockerfile: src/api/Dockerfile
     container_name: aether-api
+    # --- THIS IS THE FIX ---
+    env_file:
+      - .env
+    # -----------------------
     environment:
-      - MSSQL_HOST=sqlserver
-      - MSSQL_PORT=1433
-      - MSSQL_USER=sa
-      - MSSQL_PASSWORD=YourStrong!Passw0rd
-      - MSSQL_DATABASE=AetherStoreDB
+      - SQL_SERVER=sqlserver,1433 # Internal Docker networking
+      - SQL_DATABASE=${SQL_DATABASE}
+      - SQL_USER=${SQL_USER}
+      - SQL_PASSWORD=${SQL_PASSWORD}
     ports:
       - "8000:8000"
+    volumes:
+      - ./src:/app/src # Hot-reloading: edit code locally, updates in container
+      - ./data:/app/data
     depends_on:
       sqlserver:
         condition: service_healthy
     networks:
       - aether-network
-    volumes:
-      - ./data:/app/data
 
 volumes:
   sqlserver_data:
