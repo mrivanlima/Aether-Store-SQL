@@ -1,0 +1,16 @@
+[
+  {
+    "asin": "B01AETHER01",
+    "title": "Aether Scale Professional SQL Monitor",
+    "category": "Software",
+    "price": 299.99,
+    "description": "The ultimate tool for Senior Database Administrators to monitor SQL Server 2025 vector performance with millisecond latency."
+  },
+  {
+    "asin": "B01AETHER02",
+    "title": "Senior AI Architect Blueprint",
+    "category": "Education",
+    "price": 49.99,
+    "description": "A complete guide to building RAG systems in Brazil using Microsoft Data Platform and Vector Search."
+  }
+]

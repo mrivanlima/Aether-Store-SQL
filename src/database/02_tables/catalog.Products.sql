@@ -14,3 +14,9 @@ BEGIN
     )
 END
 GO
+
+-- 1. Add the column for Local Models (384 dimensions)
+ALTER TABLE catalog.Products 
+ADD ProductVector_Local VECTOR(384) NULL;
+GO
+

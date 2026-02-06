@@ -1,4 +1,4 @@
-# Python
+# --- Python ---
 __pycache__/
 *.py[cod]
 *$py.class
@@ -20,36 +20,62 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual Environment
+# --- Virtual Environment ---
 venv/
 env/
 ENV/
 .venv
 
-# Environment Variables
+# --- Environment Variables (CRITICAL SECURITY) ---
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# Data Directory
-data/
+# --- Data Directory ---
+# Ignore all data by default (prevents committing massive CSVs)
+data/*
+# Exception: Keep the sample file so other devs can run the app
+!data/sample.json
 
-# IDE
+# --- IDE Settings ---
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# Jupyter Notebook
+# --- Jupyter Notebooks ---
 .ipynb_checkpoints
 
-# pytest
+# --- Testing ---
 .pytest_cache/
+htmlcov/
+.coverage
 
-# mypy
+# --- Type Checking ---
 .mypy_cache/
 .dmypy.json
 dmypy.json
 
-# OS
+# --- Logs ---
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Docker ---
+docker-compose.override.yml
+
+# --- SQL Server Data (Safety Net) ---
+*.mdf
+*.ldf
+*.bak
+
+# --- OS Junk ---
 .DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini
